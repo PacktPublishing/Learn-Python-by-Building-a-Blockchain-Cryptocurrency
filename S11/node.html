@@ -1,0 +1,334 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="X-UA-Compatible" content="ie=edge">
+    <title>Blockchain Management</title>
+    <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.1.0/css/bootstrap.min.css" integrity="sha384-9gVQ4dYFwwWSjIDZnLEWnxCjeSWFphJiwGPXr1jddIhOegiu1FwO5qRGvFXOdJZ4"
+        crossorigin="anonymous">
+    <style>
+        .lds-ring {
+            display: inline-block;
+            position: relative;
+            width: 64px;
+            height: 64px;
+        }
+
+        .lds-ring div {
+            box-sizing: border-box;
+            display: block;
+            position: absolute;
+            width: 51px;
+            height: 51px;
+            margin: 6px;
+            border: 6px solid #fa923f;
+            border-radius: 50%;
+            animation: lds-ring 1.2s cubic-bezier(0.5, 0, 0.5, 1) infinite;
+            border-color: #fa923f transparent transparent transparent;
+        }
+
+        .lds-ring div:nth-child(1) {
+            animation-delay: -0.45s;
+        }
+
+        .lds-ring div:nth-child(2) {
+            animation-delay: -0.3s;
+        }
+
+        .lds-ring div:nth-child(3) {
+            animation-delay: -0.15s;
+        }
+
+        @keyframes lds-ring {
+            0% {
+                transform: rotate(0deg);
+            }
+            100% {
+                transform: rotate(360deg);
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <div id="app">
+        <div class="container">
+            <div class="row mb-3">
+                <div class="col">
+                    <h1>Manage your Blockchain</h1>
+                </div>
+            </div>
+            <div v-if="error" class="alert alert-danger" role="alert">
+                {{ error }}
+            </div>
+            <div v-if="success" class="alert alert-success" role="alert">
+                {{ success }}
+            </div>
+            <div class="row">
+                <div class="col">
+                    <div v-if="!walletLoading">
+                        <button class="btn btn-primary" @click="onCreateWallet">
+                            Create new Wallet
+                        </button>
+                        <button class="btn btn-primary" @click="onLoadWallet">
+                            Load Wallet
+                        </button>
+                    </div>
+
+                    <div v-if="walletLoading" class="lds-ring">
+                        <div></div>
+                        <div></div>
+                        <div></div>
+                        <div></div>
+                    </div>
+                </div>
+                <div class="col text-right">
+                    <h2>Funds: {{ funds }}</h2>
+                </div>
+            </div>
+            <hr>
+            <div v-if="!wallet" class="row">
+                <div class="col">
+                    <div class="alert alert-warning">Create a Wallet to start sending coins or to mine coins!</div>
+                </div>
+            </div>
+            <div v-if="wallet" class="row">
+                <div class="col">
+                    <form @submit.prevent="onSendTx">
+                        <div class="form-group">
+                            <label for="recipient">Recipient Key</label>
+                            <input v-model="outgoingTx.recipient" type="text" class="form-control" id="recipient" placeholder="Enter key">
+                        </div>
+                        <div class="form-group">
+                            <label for="amount">Amount of Coins</label>
+                            <input v-model.number="outgoingTx.amount" type="number" step="0.001" class="form-control" id="amount">
+                            <small class="form-text text-muted">Fractions are possible (e.g. 5.67)</small>
+                        </div>
+                        <div v-if="txLoading" class="lds-ring">
+                            <div></div>
+                            <div></div>
+                            <div></div>
+                            <div></div>
+                        </div>
+                        <button :disabled="txLoading || outgoingTx.recipient.trim() === '' || outgoingTx.amount <= 0" type="submit" class="btn btn-primary">Send</button>
+                    </form>
+                </div>
+            </div>
+            <hr>
+            <div class="row">
+                <div class="col">
+                    <ul class="nav nav-tabs">
+                        <li class="nav-item">
+                            <a class="nav-link" :class="{active: view === 'chain'}" href="#" @click="view = 'chain'">Blockchain</a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link" :class="{active: view === 'tx'}" href="#" @click="view = 'tx'">Open Transactions</a>
+                        </li>
+                    </ul>
+                </div>
+            </div>
+            <div class="row my-3">
+                <div class="col">
+                    <button class="btn btn-primary" @click="onLoadData">{{ view === 'chain' ? 'Load Blockchain' : 'Load Transactions' }}</button>
+                    <button v-if="view === 'chain' && wallet" class="btn btn-success" @click="onMine">Mine Coins</button>
+                </div>
+            </div>
+            <div class="row">
+                <div class="col">
+                    <div v-if="dataLoading" class="lds-ring">
+                        <div></div>
+                        <div></div>
+                        <div></div>
+                        <div></div>
+                    </div>
+                    <div v-if="!dataLoading" class="accordion">
+                        <div class="card" v-for="(data, index) in loadedData">
+                            <div v-if="view === 'chain'" class="card-header">
+                                <h5 class="mb-0">
+                                    <button class="btn btn-link" type="button" @click="showElement === index ? showElement = null : showElement = index">
+                                        Block #{{ data.index }}
+                                    </button>
+                                </h5>
+                            </div>
+                            <div v-if="view === 'chain'" class="collapse" :class="{show: showElement === index}">
+                                <div class="card-body">
+                                    <p>Previous Hash: {{ data.previous_hash }}</p>
+                                    <div class="list-group">
+                                        <div v-for="tx in data.transactions" class="list-group-item flex-column align-items-start">
+                                            <div>Sender: {{ tx.sender }}</div>
+                                            <div>Recipient: {{ tx.recipient }}</div>
+                                            <div>Amount: {{ tx.amount }}</div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div v-if="view === 'tx'" class="card-header">
+                                <h5 class="mb-0">
+                                    <button class="btn btn-link" type="button" @click="showElement === index ? showElement = null : showElement = index">
+                                        Transaction #{{ index }}
+                                    </button>
+                                </h5>
+                            </div>
+                            <div v-if="view === 'tx'" class="collapse" :class="{show: showElement === index}">
+                                <div class="card-body">
+                                    <div class="list-group">
+                                        <div class="list-group-item flex-column align-items-start">
+                                            <div>Sender: {{ data.sender }}</div>
+                                            <div>Recipient: {{ data.recipient }}</div>
+                                            <div>Amount: {{ data.amount }}</div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/vue@2.5.16/dist/vue.js"></script>
+    <script src="https://unpkg.com/axios/dist/axios.min.js"></script>
+    <script>
+        new Vue({
+            el: '#app',
+            data: {
+                blockchain: [
+                    {
+                        previous_hash: 'fawsqwar2', index: 0, transactions: [
+                            {
+                                sender: 'fsdf23',
+                                recipient: 'fadwfs314',
+                                amount: 5.5
+                            },
+                            {
+                                sender: 'fssfsddf23',
+                                recipient: 'fadewasfwfs314',
+                                amount: 15.5
+                            }
+                        ]
+                    },
+                    {
+                        previous_hash: 'awdsf14', index: 1, transactions: [
+                            {
+                                sender: 'afe',
+                                recipient: 'fadwe322fs314',
+                                amount: 1.5
+                            },
+                            {
+                                sender: 'fssddf23',
+                                recipient: 'fadesfwfs314',
+                                amount: 4.5
+                            }
+                        ]
+                    }
+                ],
+                openTransactions: [
+                    {
+                        sender: '23r32r3fsas',
+                        recipient: 'feadsf25',
+                        amount: 5.9
+                    },
+                    {
+                        sender: '23r23r2ra3fsas',
+                        recipient: 'sdfsfa',
+                        amount: 1.5
+                    }
+                ],
+                wallet: null,
+                view: 'chain',
+                walletLoading: false,
+                txLoading: false,
+                dataLoading: false,
+                showElement: null,
+                error: null,
+                success: null,
+                funds: 0,
+                outgoingTx: {
+                    recipient: '',
+                    amount: 0
+                }
+            },
+            computed: {
+                loadedData: function () {
+                    if (this.view === 'chain') {
+                        return this.blockchain;
+                    } else {
+                        return this.openTransactions
+                    }
+                }
+            },
+            methods: {
+                onCreateWallet: function () {
+                    // Send Http request to create a new wallet (and return keys)
+                    if (Math.random() > 0.5) {
+                        this.error = null
+                        this.success = 'Successfully stored transaction!';
+                        this.wallet = { private_key: 'fsde2523tfasg234twfg24qafew', public_key: '532fsdarf23rf' };
+                    } else {
+                        this.success = null;
+                        this.error = 'Something went wrong!';
+                        this.wallet = null;
+                    }
+                },
+                onLoadWallet: function () {
+                    // Send Http request to load an existing wallet (from a file on the server)
+                    if (Math.random() > 0.5) {
+                        this.error = null
+                        this.success = 'Successfully stored transaction!';
+                        this.wallet = { private_key: 'fsde2523tfasg234twfg24qafew', public_key: '532fsdarf23rf' };
+                    } else {
+                        this.success = null;
+                        this.error = 'Something went wrong!';
+                        this.wallet = null;
+                    }
+                },
+                onSendTx: function () {
+                    // Send Transaction to backend
+                    if (Math.random() > 0.5) {
+                        this.error = null
+                        this.success = 'Successfully stored transaction!'
+                        this.funds = this.funds - this.outgoingTx.amount
+                    } else {
+                        this.success = null;
+                        this.error = 'Something went wrong!'
+                    }
+                },
+                onMine: function() {
+                    if (Math.random() > 0.5) {
+                        this.error = null
+                        this.success = 'Successfully mined coins!'
+                        this.funds = this.funds + 10
+                    } else {
+                        this.success = null;
+                        this.error = 'Something went wrong!'
+                    }
+                },
+                onLoadData: function () {
+                    if (this.view === 'chain') {
+                        // Load blockchain data
+                        if (Math.random() > 0.5) {
+                            this.error = null
+                        } else {
+                            this.success = null;
+                            this.error = 'Something went wrong!'
+                        }
+                    } else {
+                        // Load transaction data
+                        if (Math.random() > 0.5) {
+                            this.error = null
+                        } else {
+                            this.success = null;
+                            this.error = 'Something went wrong!'
+                        }
+                    }
+                }
+            }
+        })
+    </script>
+</body>
+
+</html>
